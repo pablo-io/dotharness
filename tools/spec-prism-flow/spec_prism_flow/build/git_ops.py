@@ -5,6 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+from spec_prism_flow import repo
 from spec_prism_flow.build.errors import CommandError, run_subprocess
 
 _GIT_TIMEOUT_SECONDS = 30
@@ -20,7 +21,10 @@ def _run(clone: Path, *args: str) -> subprocess.CompletedProcess[str]:
 
 def toplevel(cwd: Path) -> Path:
     """Absolute path to the toplevel of the git repo containing `cwd`."""
-    return Path(_run(cwd, "rev-parse", "--show-toplevel").stdout.strip()).resolve()
+    try:
+        return repo.toplevel(cwd)
+    except repo.RepoError as exc:
+        raise GitCommandError(exc.cmd_args, exc.returncode, exc.stderr) from exc
 
 
 def origin_url(cwd: Path) -> str:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from spec_prism_flow.build import git_ops
+from spec_prism_flow import repo
 from spec_prism_flow.config import ConfigError, load_config, resolve_config_path
 
 MINIMAL_TOML = """
@@ -18,7 +18,7 @@ def repo_root(tmp_path, monkeypatch) -> Path:
     (if any) the test process happens to be running inside."""
     root = tmp_path / "repo"
     root.mkdir()
-    monkeypatch.setattr(git_ops, "toplevel", lambda _cwd: root)
+    monkeypatch.setattr(repo, "toplevel", lambda _cwd: root)
     return root
 
 
@@ -104,7 +104,7 @@ def test_tilde_path_is_expanded_without_looking_up_repo_root(tmp_path, monkeypat
     def _unexpected_toplevel(_cwd):
         raise AssertionError("toplevel lookup must not happen for ~ paths")  # noqa: TRY003
 
-    monkeypatch.setattr(git_ops, "toplevel", _unexpected_toplevel)
+    monkeypatch.setattr(repo, "toplevel", _unexpected_toplevel)
     p = _write(tmp_path, f'[plan]\nworkspace_dir = "~/docs"\nphase_dir = "{tmp_path}/phases"\n')
 
     cfg = load_config(p)
@@ -121,9 +121,9 @@ def test_relative_path_is_resolved_against_repo_toplevel(tmp_path, repo_root):
 
 def test_relative_path_outside_git_repo_raises(tmp_path, monkeypatch):
     def _not_a_repo(_cwd):
-        raise git_ops.GitCommandError(["git", "rev-parse"], 128, "fatal: not a git repository")
+        raise repo.RepoError(["git", "rev-parse"], 128, "fatal: not a git repository")
 
-    monkeypatch.setattr(git_ops, "toplevel", _not_a_repo)
+    monkeypatch.setattr(repo, "toplevel", _not_a_repo)
 
     with pytest.raises(
         ConfigError, match=r"plan\.workspace_dir.*repo root could not be determined.*not a git repository"
@@ -135,7 +135,7 @@ def test_relative_path_missing_git_binary_raises(tmp_path, monkeypatch):
     def _no_git(_cwd):
         raise FileNotFoundError("No such file or directory: 'git'")  # noqa: TRY003
 
-    monkeypatch.setattr(git_ops, "toplevel", _no_git)
+    monkeypatch.setattr(repo, "toplevel", _no_git)
 
     with pytest.raises(ConfigError, match=r"plan\.workspace_dir.*repo root could not be determined.*git"):
         load_config(_write(tmp_path, MINIMAL_TOML))
@@ -145,7 +145,7 @@ def test_unexpected_toplevel_error_propagates(tmp_path, monkeypatch):
     def _boom(_cwd):
         raise RuntimeError("programming error")  # noqa: TRY003
 
-    monkeypatch.setattr(git_ops, "toplevel", _boom)
+    monkeypatch.setattr(repo, "toplevel", _boom)
 
     with pytest.raises(RuntimeError, match="programming error"):
         load_config(_write(tmp_path, MINIMAL_TOML))
@@ -158,7 +158,7 @@ def test_repo_root_is_looked_up_once_across_relative_fields(tmp_path, repo_root,
         calls.append(cwd)
         return repo_root
 
-    monkeypatch.setattr(git_ops, "toplevel", _counting_toplevel)
+    monkeypatch.setattr(repo, "toplevel", _counting_toplevel)
     p = _write(
         tmp_path,
         MINIMAL_TOML

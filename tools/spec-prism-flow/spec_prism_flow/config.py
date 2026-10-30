@@ -4,7 +4,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from spec_prism_flow.build import git_ops
+from spec_prism_flow import repo
 
 DEFAULT_AGENT_BACKEND = "claude"
 DEFAULT_REVIEW_COMMAND = "harness"
@@ -41,8 +41,8 @@ def _resolve_path_maybe_repo_relative(raw_value: str | Path, field_name: str, re
         return p
     if "repo_root" not in repo_root_cache:
         try:
-            repo_root_cache["repo_root"] = git_ops.toplevel(Path.cwd())
-        except (git_ops.GitCommandError, FileNotFoundError) as e:
+            repo_root_cache["repo_root"] = repo.toplevel(Path.cwd())
+        except (repo.RepoError, FileNotFoundError) as e:
             raise ConfigError(  # noqa: TRY003
                 f"Cannot resolve relative path for {field_name}: repo root could not be determined ({e})"
             ) from e
