@@ -121,11 +121,33 @@ def test_relative_path_is_resolved_against_repo_toplevel(tmp_path, repo_root):
 
 def test_relative_path_outside_git_repo_raises(tmp_path, monkeypatch):
     def _not_a_repo(_cwd):
-        raise RuntimeError("fatal: not a git repository")  # noqa: TRY003
+        raise git_ops.GitCommandError(["git", "rev-parse"], 128, "fatal: not a git repository")
 
     monkeypatch.setattr(git_ops, "toplevel", _not_a_repo)
 
-    with pytest.raises(ConfigError, match=r"plan\.workspace_dir.*not in a git repository"):
+    with pytest.raises(
+        ConfigError, match=r"plan\.workspace_dir.*repo root could not be determined.*not a git repository"
+    ):
+        load_config(_write(tmp_path, MINIMAL_TOML))
+
+
+def test_relative_path_missing_git_binary_raises(tmp_path, monkeypatch):
+    def _no_git(_cwd):
+        raise FileNotFoundError("No such file or directory: 'git'")  # noqa: TRY003
+
+    monkeypatch.setattr(git_ops, "toplevel", _no_git)
+
+    with pytest.raises(ConfigError, match=r"plan\.workspace_dir.*repo root could not be determined.*git"):
+        load_config(_write(tmp_path, MINIMAL_TOML))
+
+
+def test_unexpected_toplevel_error_propagates(tmp_path, monkeypatch):
+    def _boom(_cwd):
+        raise RuntimeError("programming error")  # noqa: TRY003
+
+    monkeypatch.setattr(git_ops, "toplevel", _boom)
+
+    with pytest.raises(RuntimeError, match="programming error"):
         load_config(_write(tmp_path, MINIMAL_TOML))
 
 

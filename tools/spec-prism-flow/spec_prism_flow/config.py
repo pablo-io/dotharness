@@ -42,9 +42,9 @@ def _resolve_path_maybe_repo_relative(raw_value: str | Path, field_name: str, re
     if "repo_root" not in repo_root_cache:
         try:
             repo_root_cache["repo_root"] = git_ops.toplevel(Path.cwd())
-        except Exception as e:
+        except (git_ops.GitCommandError, FileNotFoundError) as e:
             raise ConfigError(  # noqa: TRY003
-                f"Cannot resolve relative path for {field_name}: not in a git repository (repo root could not be determined)"
+                f"Cannot resolve relative path for {field_name}: repo root could not be determined ({e})"
             ) from e
     repo_root = repo_root_cache["repo_root"]
     resolved = (repo_root / p).resolve()
