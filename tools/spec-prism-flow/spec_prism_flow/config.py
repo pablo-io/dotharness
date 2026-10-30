@@ -6,7 +6,6 @@ from pathlib import Path
 
 from spec_prism_flow.build import git_ops
 
-
 DEFAULT_AGENT_BACKEND = "claude"
 DEFAULT_REVIEW_COMMAND = "harness"
 DEFAULT_REVIEW_TOOL_DIR = "~/.harness/tools/pr-review"
@@ -33,9 +32,7 @@ def resolve_config_path(config_path_str: str | None) -> Path:
     return Path(config_path_str).expanduser() if config_path_str else Path(DEFAULT_CONFIG_FILE)
 
 
-def _resolve_path_maybe_repo_relative(raw_value: str | Path | None, field_name: str, repo_root_cache: dict) -> Path | None:
-    if raw_value is None:
-        return None
+def _resolve_path_maybe_repo_relative(raw_value: str | Path, field_name: str, repo_root_cache: dict) -> Path:
     s = str(raw_value)
     p = Path(s).expanduser()
     if p.is_absolute():
@@ -46,7 +43,7 @@ def _resolve_path_maybe_repo_relative(raw_value: str | Path | None, field_name: 
         try:
             repo_root_cache["repo_root"] = git_ops.toplevel(Path.cwd())
         except Exception as e:
-            raise ConfigError(
+            raise ConfigError(  # noqa: TRY003
                 f"Cannot resolve relative path for {field_name}: not in a git repository (repo root could not be determined)"
             ) from e
     repo_root = repo_root_cache["repo_root"]
@@ -136,7 +133,9 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     plan = PlanConfig(
         workspace_dir=_resolve_path_maybe_repo_relative(p["workspace_dir"], "plan.workspace_dir", repo_root_cache),
         phase_dir=_resolve_path_maybe_repo_relative(p["phase_dir"], "plan.phase_dir", repo_root_cache),
-        conventions_path=_resolve_path_maybe_repo_relative(raw_conventions_path, "plan.conventions_path", repo_root_cache)
+        conventions_path=_resolve_path_maybe_repo_relative(
+            raw_conventions_path, "plan.conventions_path", repo_root_cache
+        )
         if raw_conventions_path
         else None,
     )
@@ -146,7 +145,9 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     raw_harness_config = r.get("harness_config")
     if review_enabled and not raw_harness_config:
         raise ConfigError("review.harness_config is required when review.enabled is true")  # noqa: TRY003
-    review_tool_dir = _resolve_path_maybe_repo_relative(r.get("tool_dir", DEFAULT_REVIEW_TOOL_DIR), "review.tool_dir", repo_root_cache)
+    review_tool_dir = _resolve_path_maybe_repo_relative(
+        r.get("tool_dir", DEFAULT_REVIEW_TOOL_DIR), "review.tool_dir", repo_root_cache
+    )
     review_harness_config = (
         _resolve_path_maybe_repo_relative(raw_harness_config, "review.harness_config", repo_root_cache)
         if raw_harness_config
@@ -160,7 +161,9 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     )
 
     vh = data.get("vibe_heal", {})
-    vibe_heal_tool_dir = _resolve_path_maybe_repo_relative(vh.get("tool_dir", DEFAULT_VIBE_HEAL_TOOL_DIR), "vibe_heal.tool_dir", repo_root_cache)
+    vibe_heal_tool_dir = _resolve_path_maybe_repo_relative(
+        vh.get("tool_dir", DEFAULT_VIBE_HEAL_TOOL_DIR), "vibe_heal.tool_dir", repo_root_cache
+    )
     vibe_heal = VibeHealConfig(
         enabled=vh.get("enabled", False),
         command=vh.get("command", DEFAULT_VIBE_HEAL_COMMAND),
@@ -171,7 +174,9 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     raw_commands = b.get("commands", [])
     if not isinstance(raw_commands, list) or not all(isinstance(c, str) for c in raw_commands):
         raise ConfigError("build.commands must be a list of strings")  # noqa: TRY003
-    build_state_dir = _resolve_path_maybe_repo_relative(b.get("state_dir", DEFAULT_BUILD_STATE_DIR), "build.state_dir", repo_root_cache)
+    build_state_dir = _resolve_path_maybe_repo_relative(
+        b.get("state_dir", DEFAULT_BUILD_STATE_DIR), "build.state_dir", repo_root_cache
+    )
     build = BuildConfig(
         commands=raw_commands,
         workers=b.get("workers", DEFAULT_BUILD_WORKERS),
@@ -180,7 +185,9 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     )
 
     h = data.get("harness", {})
-    harness_knowledge_dir = _resolve_path_maybe_repo_relative(h.get("knowledge_dir", DEFAULT_HARNESS_KNOWLEDGE_DIR), "harness.knowledge_dir", repo_root_cache)
+    harness_knowledge_dir = _resolve_path_maybe_repo_relative(
+        h.get("knowledge_dir", DEFAULT_HARNESS_KNOWLEDGE_DIR), "harness.knowledge_dir", repo_root_cache
+    )
     harness = HarnessSection(
         knowledge_dir=harness_knowledge_dir,
     )
