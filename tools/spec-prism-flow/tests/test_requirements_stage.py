@@ -221,7 +221,7 @@ knowledge_dir = "knowledge"
 """
 
 
-def test_cli_draft_requirements_writes_requirements_and_prints_next_step(tmp_path, monkeypatch):
+def test_cli_draft_requirements_writes_requirements_and_prints_next_step(tmp_path, monkeypatch, git_repo):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"
@@ -242,7 +242,7 @@ def test_cli_draft_requirements_writes_requirements_and_prints_next_step(tmp_pat
     assert "plan decompose" in result.output
 
 
-def test_cli_draft_requirements_fails_clearly_when_overview_missing(tmp_path, monkeypatch):
+def test_cli_draft_requirements_fails_clearly_when_overview_missing(tmp_path, monkeypatch, git_repo):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"
@@ -256,7 +256,7 @@ def test_cli_draft_requirements_fails_clearly_when_overview_missing(tmp_path, mo
     assert "Overview not found" in result.output
 
 
-def test_cli_draft_requirements_fails_clearly_when_real_handoff_error_raised(tmp_path, monkeypatch):
+def test_cli_draft_requirements_fails_clearly_when_real_handoff_error_raised(tmp_path, monkeypatch, git_repo):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"
@@ -278,7 +278,7 @@ def test_cli_draft_requirements_fails_clearly_when_real_handoff_error_raised(tmp
     assert "Error:" in result.output
 
 
-def test_cli_draft_requirements_prompts_before_overwriting_existing_requirements(tmp_path, monkeypatch):
+def test_cli_draft_requirements_prompts_before_overwriting_existing_requirements(tmp_path, monkeypatch, git_repo):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"
@@ -300,7 +300,7 @@ def test_cli_draft_requirements_prompts_before_overwriting_existing_requirements
     assert (tmp_path / "workspace" / REQUIREMENTS_FILENAME).read_text() == "existing requirements"
 
 
-def test_cli_draft_requirements_yes_skips_confirmation(tmp_path, monkeypatch):
+def test_cli_draft_requirements_yes_skips_confirmation(tmp_path, monkeypatch, git_repo):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"
