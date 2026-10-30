@@ -32,23 +32,55 @@ def resolve_config_path(config_path_str: str | None) -> Path:
     return Path(config_path_str).expanduser() if config_path_str else Path(DEFAULT_CONFIG_FILE)
 
 
-def _resolve_path_maybe_repo_relative(raw_value: str | Path, field_name: str, repo_root_cache: dict) -> Path:
-    s = str(raw_value)
-    p = Path(s).expanduser()
-    if p.is_absolute():
-        return p
-    if s.startswith("~"):
-        return p
-    if "repo_root" not in repo_root_cache:
-        try:
-            repo_root_cache["repo_root"] = repo.toplevel(Path.cwd())
-        except (repo.RepoError, FileNotFoundError) as e:
-            raise ConfigError(  # noqa: TRY003
-                f"Cannot resolve relative path for {field_name}: repo root could not be determined ({e})"
-            ) from e
-    repo_root = repo_root_cache["repo_root"]
-    resolved = (repo_root / p).resolve()
-    return resolved
+def _expand_user(raw_value: str | Path, field_name: str) -> Path:
+    try:
+        return Path(raw_value).expanduser()
+    except RuntimeError as e:
+        raise ConfigError(  # noqa: TRY003
+            f"Cannot resolve {field_name} '{raw_value}': home directory could not be determined"
+        ) from e
+
+
+def _resolve_path(raw_value: str | Path, field_name: str, base: Path | None) -> Path:
+    """Return `raw_value` as a canonical absolute path.
+
+    Absolute and `~` values ignore `base`; relative values are anchored at it.
+    Every return value is `.resolve()`d, so equivalent spellings (relative vs.
+    absolute, `..`, symlinks) produce the same `Path`.
+    """
+    p = _expand_user(raw_value, field_name)
+    if not p.is_absolute():
+        if base is None:
+            raise ConfigError(f"Cannot resolve relative path for {field_name}: no base directory")  # noqa: TRY003
+        p = base / p
+    return p.resolve()
+
+
+class _PathResolver:
+    """Resolve config paths, looking up the repo root at most once.
+
+    Classification and path math live in `_resolve_path`; this class only
+    supplies the base directory for relative values, so absolute and `~`
+    values work without a git repository.
+    """
+
+    def __init__(self) -> None:
+        self._repo_root: Path | None = None
+
+    def resolve(self, raw_value: str | Path, field_name: str) -> Path:
+        p = _expand_user(raw_value, field_name)
+        base = None if p.is_absolute() else self._repo_root_for(field_name)
+        return _resolve_path(p, field_name, base)
+
+    def _repo_root_for(self, field_name: str) -> Path:
+        if self._repo_root is None:
+            try:
+                self._repo_root = repo.toplevel(Path.cwd())
+            except (repo.RepoError, FileNotFoundError) as e:
+                raise ConfigError(  # noqa: TRY003
+                    f"Cannot resolve relative path for {field_name}: repo root could not be determined ({e})"
+                ) from e
+        return self._repo_root
 
 
 @dataclass
@@ -118,7 +150,7 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
         except tomllib.TOMLDecodeError as e:
             raise ConfigError(f"Invalid TOML in config file: {e}") from None  # noqa: TRY003
 
-    repo_root_cache: dict = {}
+    resolve_path = _PathResolver().resolve
 
     a = data.get("agent", {})
     backend = parse_backend(a.get("backend", DEFAULT_AGENT_BACKEND), "agent.backend")
@@ -131,13 +163,9 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
         raise ConfigError("plan.phase_dir is required")  # noqa: TRY003
     raw_conventions_path = p.get("conventions_path")
     plan = PlanConfig(
-        workspace_dir=_resolve_path_maybe_repo_relative(p["workspace_dir"], "plan.workspace_dir", repo_root_cache),
-        phase_dir=_resolve_path_maybe_repo_relative(p["phase_dir"], "plan.phase_dir", repo_root_cache),
-        conventions_path=_resolve_path_maybe_repo_relative(
-            raw_conventions_path, "plan.conventions_path", repo_root_cache
-        )
-        if raw_conventions_path
-        else None,
+        workspace_dir=resolve_path(p["workspace_dir"], "plan.workspace_dir"),
+        phase_dir=resolve_path(p["phase_dir"], "plan.phase_dir"),
+        conventions_path=resolve_path(raw_conventions_path, "plan.conventions_path") if raw_conventions_path else None,
     )
 
     r = data.get("review", {})
@@ -145,14 +173,8 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     raw_harness_config = r.get("harness_config")
     if review_enabled and not raw_harness_config:
         raise ConfigError("review.harness_config is required when review.enabled is true")  # noqa: TRY003
-    review_tool_dir = _resolve_path_maybe_repo_relative(
-        r.get("tool_dir", DEFAULT_REVIEW_TOOL_DIR), "review.tool_dir", repo_root_cache
-    )
-    review_harness_config = (
-        _resolve_path_maybe_repo_relative(raw_harness_config, "review.harness_config", repo_root_cache)
-        if raw_harness_config
-        else None
-    )
+    review_tool_dir = resolve_path(r.get("tool_dir", DEFAULT_REVIEW_TOOL_DIR), "review.tool_dir")
+    review_harness_config = resolve_path(raw_harness_config, "review.harness_config") if raw_harness_config else None
     review = ReviewConfig(
         enabled=review_enabled,
         command=r.get("command", DEFAULT_REVIEW_COMMAND),
@@ -161,9 +183,7 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     )
 
     vh = data.get("vibe_heal", {})
-    vibe_heal_tool_dir = _resolve_path_maybe_repo_relative(
-        vh.get("tool_dir", DEFAULT_VIBE_HEAL_TOOL_DIR), "vibe_heal.tool_dir", repo_root_cache
-    )
+    vibe_heal_tool_dir = resolve_path(vh.get("tool_dir", DEFAULT_VIBE_HEAL_TOOL_DIR), "vibe_heal.tool_dir")
     vibe_heal = VibeHealConfig(
         enabled=vh.get("enabled", False),
         command=vh.get("command", DEFAULT_VIBE_HEAL_COMMAND),
@@ -174,9 +194,7 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     raw_commands = b.get("commands", [])
     if not isinstance(raw_commands, list) or not all(isinstance(c, str) for c in raw_commands):
         raise ConfigError("build.commands must be a list of strings")  # noqa: TRY003
-    build_state_dir = _resolve_path_maybe_repo_relative(
-        b.get("state_dir", DEFAULT_BUILD_STATE_DIR), "build.state_dir", repo_root_cache
-    )
+    build_state_dir = resolve_path(b.get("state_dir", DEFAULT_BUILD_STATE_DIR), "build.state_dir")
     build = BuildConfig(
         commands=raw_commands,
         workers=b.get("workers", DEFAULT_BUILD_WORKERS),
@@ -185,9 +203,7 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     )
 
     h = data.get("harness", {})
-    harness_knowledge_dir = _resolve_path_maybe_repo_relative(
-        h.get("knowledge_dir", DEFAULT_HARNESS_KNOWLEDGE_DIR), "harness.knowledge_dir", repo_root_cache
-    )
+    harness_knowledge_dir = resolve_path(h.get("knowledge_dir", DEFAULT_HARNESS_KNOWLEDGE_DIR), "harness.knowledge_dir")
     harness = HarnessSection(
         knowledge_dir=harness_knowledge_dir,
     )

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from spec_prism_flow import repo
-from spec_prism_flow.config import ConfigError, load_config, resolve_config_path
+from spec_prism_flow.config import ConfigError, _resolve_path, load_config, resolve_config_path
 
 MINIMAL_TOML = """
 [plan]
@@ -91,13 +91,43 @@ conventions_path = "docs/CONVENTIONS.md"
     assert cfg.plan.conventions_path == repo_root / "docs/CONVENTIONS.md"
 
 
-def test_absolute_path_is_returned_untouched(tmp_path):
+def test_absolute_path_is_canonicalized(tmp_path):
     raw = f"{tmp_path}/docs/../workspace"
     p = _write(tmp_path, f'[plan]\nworkspace_dir = "{raw}"\nphase_dir = "docs/phases"\n')
 
     cfg = load_config(p)
 
-    assert cfg.plan.workspace_dir == Path(raw)
+    assert cfg.plan.workspace_dir == Path(raw).resolve()
+    assert cfg.plan.workspace_dir.is_absolute()
+
+
+def test_absolute_and_relative_spellings_resolve_to_the_same_path(tmp_path, repo_root):
+    absolute = _write(
+        tmp_path,
+        f'[plan]\nworkspace_dir = "{repo_root}/docs/../docs"\nphase_dir = "docs/phases"\n',
+    )
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    relative = _write(nested, MINIMAL_TOML)
+
+    assert load_config(absolute).plan.workspace_dir == load_config(relative).plan.workspace_dir
+
+
+def test_unknown_user_tilde_raises(tmp_path):
+    p = _write(tmp_path, '[plan]\nworkspace_dir = "~no-such-user-here/docs"\nphase_dir = "docs/phases"\n')
+
+    with pytest.raises(ConfigError, match=r"plan\.workspace_dir.*home directory"):
+        load_config(p)
+
+
+def test_resolve_path_is_pure_and_needs_no_repo_root(tmp_path):
+    base = tmp_path / "base"
+    base.mkdir()
+
+    assert _resolve_path("docs/../docs", "plan.workspace_dir", base) == base / "docs"
+    assert _resolve_path(base / "docs", "plan.workspace_dir", None) == base / "docs"
+    with pytest.raises(ConfigError, match=r"no base directory"):
+        _resolve_path("docs", "plan.workspace_dir", None)
 
 
 def test_tilde_path_is_expanded_without_looking_up_repo_root(tmp_path, monkeypatch):
