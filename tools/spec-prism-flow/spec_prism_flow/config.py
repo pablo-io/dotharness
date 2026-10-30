@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 DEFAULT_AGENT_BACKEND = "claude"
@@ -28,6 +29,30 @@ def parse_backend(value: str, field_name: str) -> str:
 
 def resolve_config_path(config_path_str: str | None) -> Path:
     return Path(config_path_str).expanduser() if config_path_str else Path(DEFAULT_CONFIG_FILE)
+
+
+def _expand_user(raw_value: str | Path, field_name: str) -> Path:
+    try:
+        return Path(raw_value).expanduser()
+    except RuntimeError as e:
+        raise ConfigError(  # noqa: TRY003
+            f"Cannot resolve {field_name} '{raw_value}': home directory could not be determined"
+        ) from e
+
+
+def _resolve_path(raw_value: str | Path, field_name: str, base: Path | None) -> Path:
+    """Return `raw_value` as a canonical absolute path.
+
+    Absolute and `~` values ignore `base`; relative values are anchored at it.
+    Every return value is `.resolve()`d, so equivalent spellings (relative vs.
+    absolute, `..`, symlinks) produce the same `Path`.
+    """
+    p = _expand_user(raw_value, field_name)
+    if not p.is_absolute():
+        if base is None:
+            raise ConfigError(f"Cannot resolve relative path for {field_name}: no base directory")  # noqa: TRY003
+        p = base / p
+    return p.resolve()
 
 
 @dataclass
@@ -87,7 +112,14 @@ class SpecPrismFlowConfig:
     prose_review: ProseReviewConfig = field(default_factory=ProseReviewConfig)
 
 
-def load_config(path: Path) -> SpecPrismFlowConfig:
+def load_config(path: Path, *, base_dir: Path | None = None) -> SpecPrismFlowConfig:
+    """Parse `path` into a `SpecPrismFlowConfig`.
+
+    Relative paths in the file are anchored at `base_dir`, which defaults to the
+    process CWD. `cli.py` passes the CWD explicitly so the anchoring policy is
+    visible at the entry point; this function never consults the environment or
+    runs git itself.
+    """
     if not path.exists():
         raise ConfigError(f"Config file not found: {path}")  # noqa: TRY003
 
@@ -96,6 +128,8 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
             data = tomllib.load(f)
         except tomllib.TOMLDecodeError as e:
             raise ConfigError(f"Invalid TOML in config file: {e}") from None  # noqa: TRY003
+
+    resolve_path = partial(_resolve_path, base=Path.cwd() if base_dir is None else base_dir)
 
     a = data.get("agent", {})
     backend = parse_backend(a.get("backend", DEFAULT_AGENT_BACKEND), "agent.backend")
@@ -108,9 +142,9 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
         raise ConfigError("plan.phase_dir is required")  # noqa: TRY003
     raw_conventions_path = p.get("conventions_path")
     plan = PlanConfig(
-        workspace_dir=Path(p["workspace_dir"]).expanduser(),
-        phase_dir=Path(p["phase_dir"]).expanduser(),
-        conventions_path=Path(raw_conventions_path).expanduser() if raw_conventions_path else None,
+        workspace_dir=resolve_path(p["workspace_dir"], "plan.workspace_dir"),
+        phase_dir=resolve_path(p["phase_dir"], "plan.phase_dir"),
+        conventions_path=resolve_path(raw_conventions_path, "plan.conventions_path") if raw_conventions_path else None,
     )
 
     r = data.get("review", {})
@@ -118,34 +152,39 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
     raw_harness_config = r.get("harness_config")
     if review_enabled and not raw_harness_config:
         raise ConfigError("review.harness_config is required when review.enabled is true")  # noqa: TRY003
+    review_tool_dir = resolve_path(r.get("tool_dir", DEFAULT_REVIEW_TOOL_DIR), "review.tool_dir")
+    review_harness_config = resolve_path(raw_harness_config, "review.harness_config") if raw_harness_config else None
     review = ReviewConfig(
         enabled=review_enabled,
         command=r.get("command", DEFAULT_REVIEW_COMMAND),
-        tool_dir=Path(r.get("tool_dir", DEFAULT_REVIEW_TOOL_DIR)).expanduser(),
-        harness_config=Path(raw_harness_config).expanduser() if raw_harness_config else None,
+        tool_dir=review_tool_dir,
+        harness_config=review_harness_config,
     )
 
     vh = data.get("vibe_heal", {})
+    vibe_heal_tool_dir = resolve_path(vh.get("tool_dir", DEFAULT_VIBE_HEAL_TOOL_DIR), "vibe_heal.tool_dir")
     vibe_heal = VibeHealConfig(
         enabled=vh.get("enabled", False),
         command=vh.get("command", DEFAULT_VIBE_HEAL_COMMAND),
-        tool_dir=Path(vh.get("tool_dir", DEFAULT_VIBE_HEAL_TOOL_DIR)).expanduser(),
+        tool_dir=vibe_heal_tool_dir,
     )
 
     b = data.get("build", {})
     raw_commands = b.get("commands", [])
     if not isinstance(raw_commands, list) or not all(isinstance(c, str) for c in raw_commands):
         raise ConfigError("build.commands must be a list of strings")  # noqa: TRY003
+    build_state_dir = resolve_path(b.get("state_dir", DEFAULT_BUILD_STATE_DIR), "build.state_dir")
     build = BuildConfig(
         commands=raw_commands,
         workers=b.get("workers", DEFAULT_BUILD_WORKERS),
         max_retry_cycles=b.get("max_retry_cycles", DEFAULT_BUILD_MAX_RETRY_CYCLES),
-        state_dir=Path(b.get("state_dir", DEFAULT_BUILD_STATE_DIR)).expanduser(),
+        state_dir=build_state_dir,
     )
 
     h = data.get("harness", {})
+    harness_knowledge_dir = resolve_path(h.get("knowledge_dir", DEFAULT_HARNESS_KNOWLEDGE_DIR), "harness.knowledge_dir")
     harness = HarnessSection(
-        knowledge_dir=Path(h.get("knowledge_dir", DEFAULT_HARNESS_KNOWLEDGE_DIR)).expanduser(),
+        knowledge_dir=harness_knowledge_dir,
     )
 
     pr = data.get("prose_review", {})
