@@ -303,7 +303,7 @@ def _write_cli_tree(tmp_path) -> None:
     write_tree(root, tmp_path / "workspace" / TREE_FILENAME)
 
 
-def test_cli_draft_phases_prompts_before_overwriting_existing_phase_file(tmp_path, monkeypatch, git_repo):
+def test_cli_draft_phases_prompts_before_overwriting_existing_phase_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     _write_cli_tree(tmp_path)
@@ -317,7 +317,7 @@ def test_cli_draft_phases_prompts_before_overwriting_existing_phase_file(tmp_pat
     assert (phase_dir / "01-only-leaf.md").read_text() == "hand-edited content"
 
 
-def test_cli_draft_phases_yes_skips_confirmation(tmp_path, monkeypatch, git_repo):
+def test_cli_draft_phases_yes_skips_confirmation(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     _write_cli_tree(tmp_path)
@@ -331,7 +331,7 @@ def test_cli_draft_phases_yes_skips_confirmation(tmp_path, monkeypatch, git_repo
     assert (phase_dir / "01-only-leaf.md").read_text() != "hand-edited content"
 
 
-def test_cli_draft_phases_no_prompt_when_nothing_exists_yet(tmp_path, monkeypatch, git_repo):
+def test_cli_draft_phases_no_prompt_when_nothing_exists_yet(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     _write_cli_tree(tmp_path)

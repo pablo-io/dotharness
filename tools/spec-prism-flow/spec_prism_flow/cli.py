@@ -48,7 +48,7 @@ def _require_readable_file(path_str: str, label: str) -> Path:
 
 def _load_cfg_or_raise(config_path_str: str | None):
     try:
-        return load_config(resolve_config_path(config_path_str).resolve())
+        return load_config(resolve_config_path(config_path_str).resolve(), base_dir=Path.cwd())
     except ConfigError as e:
         raise click.ClickException(str(e)) from e
 

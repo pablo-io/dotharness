@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from spec_prism_flow import repo
 from spec_prism_flow.config import ConfigError, _resolve_path, load_config, resolve_config_path
 
 MINIMAL_TOML = """
@@ -13,12 +12,10 @@ phase_dir = "docs/phases"
 
 
 @pytest.fixture(autouse=True)
-def repo_root(tmp_path, monkeypatch) -> Path:
-    """Anchor every relative config path at a fake repo root instead of whatever repo
-    (if any) the test process happens to be running inside."""
+def base_dir(tmp_path) -> Path:
+    """Directory that relative config paths are anchored at in these tests."""
     root = tmp_path / "repo"
     root.mkdir()
-    monkeypatch.setattr(repo, "toplevel", lambda _cwd: root)
     return root
 
 
@@ -28,11 +25,11 @@ def _write(tmp_path: Path, content: str) -> Path:
     return p
 
 
-def test_load_minimal(tmp_path, repo_root):
-    cfg = load_config(_write(tmp_path, MINIMAL_TOML))
+def test_load_minimal(tmp_path, base_dir):
+    cfg = load_config(_write(tmp_path, MINIMAL_TOML), base_dir=base_dir)
 
-    assert cfg.plan.workspace_dir == repo_root / "docs"
-    assert cfg.plan.phase_dir == repo_root / "docs/phases"
+    assert cfg.plan.workspace_dir == base_dir / "docs"
+    assert cfg.plan.phase_dir == base_dir / "docs/phases"
     assert cfg.plan.conventions_path is None
     assert cfg.agent.backend == "claude"
 
@@ -77,7 +74,7 @@ def test_missing_phase_dir_raises(tmp_path):
         load_config(p)
 
 
-def test_conventions_path_parsed(tmp_path, repo_root):
+def test_conventions_path_parsed(tmp_path, base_dir):
     p = _write(
         tmp_path,
         MINIMAL_TOML
@@ -86,9 +83,9 @@ conventions_path = "docs/CONVENTIONS.md"
 """,
     )
 
-    cfg = load_config(p)
+    cfg = load_config(p, base_dir=base_dir)
 
-    assert cfg.plan.conventions_path == repo_root / "docs/CONVENTIONS.md"
+    assert cfg.plan.conventions_path == base_dir / "docs/CONVENTIONS.md"
 
 
 def test_absolute_path_is_canonicalized(tmp_path):
@@ -101,16 +98,19 @@ def test_absolute_path_is_canonicalized(tmp_path):
     assert cfg.plan.workspace_dir.is_absolute()
 
 
-def test_absolute_and_relative_spellings_resolve_to_the_same_path(tmp_path, repo_root):
+def test_absolute_and_relative_spellings_resolve_to_the_same_path(tmp_path, base_dir):
     absolute = _write(
         tmp_path,
-        f'[plan]\nworkspace_dir = "{repo_root}/docs/../docs"\nphase_dir = "docs/phases"\n',
+        f'[plan]\nworkspace_dir = "{base_dir}/docs/../docs"\nphase_dir = "docs/phases"\n',
     )
     nested = tmp_path / "nested"
     nested.mkdir()
     relative = _write(nested, MINIMAL_TOML)
 
-    assert load_config(absolute).plan.workspace_dir == load_config(relative).plan.workspace_dir
+    assert (
+        load_config(absolute, base_dir=base_dir).plan.workspace_dir
+        == load_config(relative, base_dir=base_dir).plan.workspace_dir
+    )
 
 
 def test_unknown_user_tilde_raises(tmp_path):
@@ -120,7 +120,7 @@ def test_unknown_user_tilde_raises(tmp_path):
         load_config(p)
 
 
-def test_resolve_path_is_pure_and_needs_no_repo_root(tmp_path):
+def test_resolve_path_is_pure(tmp_path):
     base = tmp_path / "base"
     base.mkdir()
 
@@ -130,11 +130,7 @@ def test_resolve_path_is_pure_and_needs_no_repo_root(tmp_path):
         _resolve_path("docs", "plan.workspace_dir", None)
 
 
-def test_tilde_path_is_expanded_without_looking_up_repo_root(tmp_path, monkeypatch):
-    def _unexpected_toplevel(_cwd):
-        raise AssertionError("toplevel lookup must not happen for ~ paths")  # noqa: TRY003
-
-    monkeypatch.setattr(repo, "toplevel", _unexpected_toplevel)
+def test_tilde_path_is_expanded(tmp_path):
     p = _write(tmp_path, f'[plan]\nworkspace_dir = "~/docs"\nphase_dir = "{tmp_path}/phases"\n')
 
     cfg = load_config(p)
@@ -142,53 +138,20 @@ def test_tilde_path_is_expanded_without_looking_up_repo_root(tmp_path, monkeypat
     assert cfg.plan.workspace_dir == Path.home() / "docs"
 
 
-def test_relative_path_is_resolved_against_repo_toplevel(tmp_path, repo_root):
+def test_relative_path_is_resolved_against_base_dir(tmp_path, base_dir):
+    cfg = load_config(_write(tmp_path, MINIMAL_TOML), base_dir=base_dir)
+
+    assert cfg.plan.workspace_dir == (base_dir / "docs").resolve()
+    assert cfg.plan.phase_dir == (base_dir / "docs/phases").resolve()
+
+
+def test_base_dir_defaults_to_process_cwd(tmp_path):
     cfg = load_config(_write(tmp_path, MINIMAL_TOML))
 
-    assert cfg.plan.workspace_dir == (repo_root / "docs").resolve()
-    assert cfg.plan.phase_dir == (repo_root / "docs/phases").resolve()
+    assert cfg.plan.workspace_dir == (Path.cwd() / "docs").resolve()
 
 
-def test_relative_path_outside_git_repo_raises(tmp_path, monkeypatch):
-    def _not_a_repo(_cwd):
-        raise repo.RepoError(["git", "rev-parse"], 128, "fatal: not a git repository")
-
-    monkeypatch.setattr(repo, "toplevel", _not_a_repo)
-
-    with pytest.raises(
-        ConfigError, match=r"plan\.workspace_dir.*repo root could not be determined.*not a git repository"
-    ):
-        load_config(_write(tmp_path, MINIMAL_TOML))
-
-
-def test_relative_path_missing_git_binary_raises(tmp_path, monkeypatch):
-    def _no_git(_cwd):
-        raise FileNotFoundError("No such file or directory: 'git'")  # noqa: TRY003
-
-    monkeypatch.setattr(repo, "toplevel", _no_git)
-
-    with pytest.raises(ConfigError, match=r"plan\.workspace_dir.*repo root could not be determined.*git"):
-        load_config(_write(tmp_path, MINIMAL_TOML))
-
-
-def test_unexpected_toplevel_error_propagates(tmp_path, monkeypatch):
-    def _boom(_cwd):
-        raise RuntimeError("programming error")  # noqa: TRY003
-
-    monkeypatch.setattr(repo, "toplevel", _boom)
-
-    with pytest.raises(RuntimeError, match="programming error"):
-        load_config(_write(tmp_path, MINIMAL_TOML))
-
-
-def test_repo_root_is_looked_up_once_across_relative_fields(tmp_path, repo_root, monkeypatch):
-    calls = []
-
-    def _counting_toplevel(cwd):
-        calls.append(cwd)
-        return repo_root
-
-    monkeypatch.setattr(repo, "toplevel", _counting_toplevel)
+def test_base_dir_anchors_every_relative_field(tmp_path, base_dir):
     p = _write(
         tmp_path,
         MINIMAL_TOML
@@ -200,13 +163,12 @@ state_dir = "state"
 """,
     )
 
-    cfg = load_config(p)
+    cfg = load_config(p, base_dir=base_dir)
 
-    assert len(calls) == 1
-    assert cfg.plan.workspace_dir == repo_root / "docs"
-    assert cfg.plan.phase_dir == repo_root / "docs/phases"
-    assert cfg.plan.conventions_path == repo_root / "docs/CONVENTIONS.md"
-    assert cfg.build.state_dir == repo_root / "state"
+    assert cfg.plan.workspace_dir == (base_dir / "docs").resolve()
+    assert cfg.plan.phase_dir == (base_dir / "docs/phases").resolve()
+    assert cfg.plan.conventions_path == (base_dir / "docs/CONVENTIONS.md").resolve()
+    assert cfg.build.state_dir == (base_dir / "state").resolve()
 
 
 def test_agent_backend_defaults_to_claude_when_section_absent(tmp_path):

@@ -144,7 +144,7 @@ phase_dir = "phases"
 """
 
 
-def test_cli_draft_overview_writes_overview_and_prints_next_step(tmp_path, monkeypatch, git_repo):
+def test_cli_draft_overview_writes_overview_and_prints_next_step(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"
@@ -163,7 +163,7 @@ def test_cli_draft_overview_writes_overview_and_prints_next_step(tmp_path, monke
     assert "No open questions raised." in result.output
 
 
-def test_cli_draft_overview_fails_clearly_when_real_handoff_error_raised(tmp_path, monkeypatch, git_repo):
+def test_cli_draft_overview_fails_clearly_when_real_handoff_error_raised(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"
@@ -182,7 +182,7 @@ def test_cli_draft_overview_fails_clearly_when_real_handoff_error_raised(tmp_pat
     assert "Error:" in result.output
 
 
-def test_cli_draft_overview_rejects_missing_manifest(tmp_path, monkeypatch, git_repo):
+def test_cli_draft_overview_rejects_missing_manifest(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
 
@@ -193,7 +193,7 @@ def test_cli_draft_overview_rejects_missing_manifest(tmp_path, monkeypatch, git_
     assert "Manifest not found" in result.output
 
 
-def test_cli_draft_overview_prompts_before_overwriting_existing_overview(tmp_path, monkeypatch, git_repo):
+def test_cli_draft_overview_prompts_before_overwriting_existing_overview(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"
@@ -212,7 +212,7 @@ def test_cli_draft_overview_prompts_before_overwriting_existing_overview(tmp_pat
     assert (tmp_path / "workspace" / OVERVIEW_FILENAME).read_text() == "existing overview"
 
 
-def test_cli_draft_overview_yes_skips_confirmation(tmp_path, monkeypatch, git_repo):
+def test_cli_draft_overview_yes_skips_confirmation(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
     brief = tmp_path / "brief.md"

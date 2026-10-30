@@ -31,7 +31,7 @@ def _write_config(tmp_path) -> None:
     (tmp_path / ".spec-prism-flow.toml").write_text(MINIMAL_TOML)
 
 
-def test_plan_init_creates_manifest(tmp_path, monkeypatch, git_repo) -> None:
+def test_plan_init_creates_manifest(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     (tmp_path / "brief.md").write_text("brief content")
@@ -47,7 +47,7 @@ def test_plan_init_creates_manifest(tmp_path, monkeypatch, git_repo) -> None:
     assert manifest["brief"].endswith("brief.md")
 
 
-def test_plan_init_rejects_missing_brief(tmp_path, monkeypatch, git_repo) -> None:
+def test_plan_init_rejects_missing_brief(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     runner = CliRunner()
@@ -70,7 +70,7 @@ def test_plan_init_rejects_missing_config(tmp_path, monkeypatch) -> None:
     assert "Traceback" not in result.output
 
 
-def test_plan_init_rejects_missing_code_path(tmp_path, monkeypatch, git_repo) -> None:
+def test_plan_init_rejects_missing_code_path(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     (tmp_path / "brief.md").write_text("brief content")
@@ -82,7 +82,7 @@ def test_plan_init_rejects_missing_code_path(tmp_path, monkeypatch, git_repo) ->
     assert "--code" in result.output
 
 
-def test_plan_init_accepts_links_verbatim(tmp_path, monkeypatch, git_repo) -> None:
+def test_plan_init_accepts_links_verbatim(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     (tmp_path / "brief.md").write_text("brief content")
@@ -95,7 +95,7 @@ def test_plan_init_accepts_links_verbatim(tmp_path, monkeypatch, git_repo) -> No
     assert manifest["links"] == ["https://example.com/a", "https://example.com/b"]
 
 
-def test_plan_init_prompts_before_overwriting_existing_manifest(tmp_path, monkeypatch, git_repo) -> None:
+def test_plan_init_prompts_before_overwriting_existing_manifest(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     (tmp_path / "brief.md").write_text("brief content")
@@ -109,7 +109,7 @@ def test_plan_init_prompts_before_overwriting_existing_manifest(tmp_path, monkey
     assert manifest["brief"].endswith("brief.md")
 
 
-def test_plan_init_yes_skips_confirmation(tmp_path, monkeypatch, git_repo) -> None:
+def test_plan_init_yes_skips_confirmation(tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path)
     (tmp_path / "brief.md").write_text("brief content")

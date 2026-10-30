@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import tomllib
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
-
-from spec_prism_flow import repo
 
 DEFAULT_AGENT_BACKEND = "claude"
 DEFAULT_REVIEW_COMMAND = "harness"
@@ -54,33 +53,6 @@ def _resolve_path(raw_value: str | Path, field_name: str, base: Path | None) -> 
             raise ConfigError(f"Cannot resolve relative path for {field_name}: no base directory")  # noqa: TRY003
         p = base / p
     return p.resolve()
-
-
-class _PathResolver:
-    """Resolve config paths, looking up the repo root at most once.
-
-    Classification and path math live in `_resolve_path`; this class only
-    supplies the base directory for relative values, so absolute and `~`
-    values work without a git repository.
-    """
-
-    def __init__(self) -> None:
-        self._repo_root: Path | None = None
-
-    def resolve(self, raw_value: str | Path, field_name: str) -> Path:
-        p = _expand_user(raw_value, field_name)
-        base = None if p.is_absolute() else self._repo_root_for(field_name)
-        return _resolve_path(p, field_name, base)
-
-    def _repo_root_for(self, field_name: str) -> Path:
-        if self._repo_root is None:
-            try:
-                self._repo_root = repo.toplevel(Path.cwd())
-            except (repo.RepoError, FileNotFoundError) as e:
-                raise ConfigError(  # noqa: TRY003
-                    f"Cannot resolve relative path for {field_name}: repo root could not be determined ({e})"
-                ) from e
-        return self._repo_root
 
 
 @dataclass
@@ -140,7 +112,14 @@ class SpecPrismFlowConfig:
     prose_review: ProseReviewConfig = field(default_factory=ProseReviewConfig)
 
 
-def load_config(path: Path) -> SpecPrismFlowConfig:
+def load_config(path: Path, *, base_dir: Path | None = None) -> SpecPrismFlowConfig:
+    """Parse `path` into a `SpecPrismFlowConfig`.
+
+    Relative paths in the file are anchored at `base_dir`, which defaults to the
+    process CWD. `cli.py` passes the CWD explicitly so the anchoring policy is
+    visible at the entry point; this function never consults the environment or
+    runs git itself.
+    """
     if not path.exists():
         raise ConfigError(f"Config file not found: {path}")  # noqa: TRY003
 
@@ -150,7 +129,7 @@ def load_config(path: Path) -> SpecPrismFlowConfig:
         except tomllib.TOMLDecodeError as e:
             raise ConfigError(f"Invalid TOML in config file: {e}") from None  # noqa: TRY003
 
-    resolve_path = _PathResolver().resolve
+    resolve_path = partial(_resolve_path, base=Path.cwd() if base_dir is None else base_dir)
 
     a = data.get("agent", {})
     backend = parse_backend(a.get("backend", DEFAULT_AGENT_BACKEND), "agent.backend")
